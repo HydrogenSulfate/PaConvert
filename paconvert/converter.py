@@ -25,15 +25,9 @@ import black
 import isort
 import astor
 
-from paconvert.transformer.basic_transformer import BasicTransformer
-from paconvert.transformer.import_transformer import ImportTransformer
-from paconvert.transformer.tensor_requires_grad_transformer import (
-    TensorRequiresGradTransformer,
-)
-from paconvert.transformer.custom_op_transformer import (
-    PreCustomOpTransformer,
-    CustomOpTransformer,
-)
+from paconvert.backend.manager import BackendManager
+
+# Transformer imports moved to backend implementations
 from paconvert.utils import (
     UtilsFileHelper,
     get_unique_name,
@@ -58,6 +52,7 @@ class Converter:
         show_unsupport_api=False,
         no_format=False,
         calculate_speed=False,
+        backend="astor",
     ):
         self.imports_map = collections.defaultdict(dict)
         self.torch_api_count = 0
@@ -79,9 +74,16 @@ class Converter:
         self.no_format = no_format
         self.calculate_speed = calculate_speed
         self.line_count = 0
+        self.backend_type = backend
+        
+        # Initialize backend manager
+        self.backend_manager = BackendManager(backend, self.logger)
 
         log_info(self.logger, "===========================================")
         log_info(self.logger, "PyTorch to Paddle Convert Start ------>:")
+        log_info(self.logger, f"Using backend: {self.backend_manager.get_backend_name()}")
+        if self.backend_manager.is_fallback_used():
+            log_info(self.logger, f"Requested backend '{self.backend_manager.get_requested_backend()}' not available, using fallback")
         log_info(self.logger, "===========================================")
 
     def run(self, in_dir, out_dir=None, exclude=None):
@@ -182,6 +184,7 @@ class Converter:
         if not self.log_markdown:
             log_warning(self.logger, "\n===========================================")
             log_warning(self.logger, "Convert Summary")
+            log_warning(self.logger, f"Backend used: {self.backend_manager.get_backend_name()}")
             log_warning(self.logger, "===========================================")
             log_warning(
                 self.logger,
@@ -310,10 +313,10 @@ class Converter:
                 code = f.read()
                 if self.calculate_speed:
                     self.line_count += len(code.splitlines())
-                root = ast.parse(code)
+                root = self.backend_manager.parse_code(code)
 
             self.transfer_node(root, old_path)
-            code = astor.to_source(root)
+            code = self.backend_manager.generate_code(root)
 
             # format code
             if not self.no_format:
@@ -374,25 +377,21 @@ class Converter:
             shutil.copyfile(old_path, new_path)
 
     def transfer_node(self, root, file):
-        transformers = [
-            ImportTransformer,  # import ast transformer
-            TensorRequiresGradTransformer,  # attribute requires_grad transformer
-            BasicTransformer,  # most of api transformer
-            PreCustomOpTransformer,  # pre process for C++ custom op
-            CustomOpTransformer,  # C++ custom op transformer
-        ]
+        # Create transformers using backend manager
+        transformers = self.backend_manager.create_transformers(
+            root,
+            file,
+            self.imports_map,
+            self.logger,
+            self.all_api_map,
+            self.unsupport_api_map,
+        )
+        
+        # Apply transformations
         for transformer in transformers:
-            trans = transformer(
-                root,
-                file,
-                self.imports_map,
-                self.logger,
-                self.all_api_map,
-                self.unsupport_api_map,
-            )
-            trans.transform()
-            self.torch_api_count += trans.torch_api_count
-            self.success_api_count += trans.success_api_count
+            transformer.transform()
+            self.torch_api_count += transformer.torch_api_count
+            self.success_api_count += transformer.success_api_count
 
     def mark_unsupport(self, code, file):
         lines = code.split("\n")

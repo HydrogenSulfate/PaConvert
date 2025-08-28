@@ -20,6 +20,7 @@ sys.path.append(os.path.dirname(__file__) + "/..")
 
 from paconvert.converter import Converter
 from paconvert.global_var import GlobalManager
+from paconvert.backend.manager import BackendManager
 
 try:
     from paconvert.version import __version__
@@ -111,7 +112,20 @@ def main():
         action="store_true",
         help="Inner Usage. Calculate convert speed. user do not need to pay attention.",
     )
+    parser.add_argument(
+        "--backend",
+        default="astor",
+        type=str,
+        choices=["astor", "libcst"],
+        help="Optional. AST backend to use for parsing and code generation. 'astor' (default) for fast conversion, 'libcst' for preserving comments and formatting. Default: 'astor'.",
+    )
     args = parser.parse_args()
+
+    # Validate backend parameter
+    if not BackendManager.validate_backend_type(args.backend):
+        valid_backends = ", ".join(BackendManager.get_valid_backends())
+        print(f"Error: Invalid backend '{args.backend}'. Valid options: {valid_backends}")
+        sys.exit(1)
 
     if args.exclude_packages:
         exclude_packages = args.exclude_packages.split(",")
@@ -134,6 +148,7 @@ def main():
                 show_unsupport_api=args.show_unsupport_api,
                 no_format=args.no_format,
                 calculate_speed=args.calculate_speed,
+                backend=args.backend,
             )
 
             project_dir = os.path.join(in_dir, project_name)
@@ -179,6 +194,7 @@ def main():
         show_unsupport_api=args.show_unsupport_api,
         no_format=args.no_format,
         calculate_speed=args.calculate_speed,
+        backend=args.backend,
     )
 
     if args.run_check:

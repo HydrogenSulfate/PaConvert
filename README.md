@@ -27,7 +27,7 @@
 
 ```bash
 pip install -U paconvert
-paconvert -i torch_code_dir [-o paddle_code_dir] [-e exclude.py] [--log_dir log_dir] [--log_level "INFO"] [--show_all_api] [--show_unsupport_api] [--run_check] [--no_format]
+paconvert -i torch_code_dir [-o paddle_code_dir] [-e exclude.py] [--log_dir log_dir] [--log_level "INFO"] [--show_all_api] [--show_unsupport_api] [--run_check] [--no_format] [--backend astor|libcst]
 ```
 
 - 命令行参数介绍
@@ -42,6 +42,7 @@ paconvert -i torch_code_dir [-o paddle_code_dir] [-e exclude.py] [--log_dir log_
 --run_check          可选，工具进行安装与运行自检。
 --no_format          可选，转换后的代码不进行代码风格优化。默认会优化代码风格。
 --exclude_packages   可选，可以配置无需识别转换的torch包名，多个包名请使用逗号分隔。默认不配置。
+--backend            可选，AST后端选择。'astor'(默认)用于快速转换，'libcst'用于保留注释和格式。默认为'astor'。
 ```
 
 #### 2. IDE交互式用法
