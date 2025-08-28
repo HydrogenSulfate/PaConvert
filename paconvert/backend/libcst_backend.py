@@ -33,6 +33,9 @@ class LibcstBackend(BaseBackend):
         super().__init__()
         if not LIBCST_AVAILABLE:
             raise ImportError("libcst is required for LibcstBackend but not available. Install with: pip install libcst")
+        
+        # Store transformed code for retrieval
+        self._transformed_code = None
     
     def parse_code(self, code: str) -> cst.Module:
         """Parse source code using libcst.parse_module.
@@ -64,6 +67,13 @@ class LibcstBackend(BaseBackend):
             ValueError: If tree cannot be converted to code
         """
         try:
+            # If we have transformed code from the bridge, use that
+            if self._transformed_code is not None:
+                result = self._transformed_code
+                self._transformed_code = None  # Reset for next use
+                return result
+            
+            # Otherwise use the original tree
             if hasattr(tree, 'code'):
                 return tree.code
             else:
@@ -88,43 +98,12 @@ class LibcstBackend(BaseBackend):
         Returns:
             List of transformer instances
         """
-        # For now, we'll create a bridge that converts libcst to AST,
-        # applies AST transformers, then converts back to libcst
-        # This is a temporary solution until we implement native libcst transformers
-        
-        # Import transformer classes
-        from paconvert.transformer.import_transformer import ImportTransformer
-        from paconvert.transformer.tensor_requires_grad_transformer import (
-            TensorRequiresGradTransformer,
-        )
-        from paconvert.transformer.basic_transformer import BasicTransformer
-        from paconvert.transformer.custom_op_transformer import (
-            PreCustomOpTransformer,
-            CustomOpTransformer,
+        # Create a single bridge transformer that handles all AST transformations
+        bridge_transformer = LibcstBridgeTransformer(
+            self, tree, file, imports_map, logger, all_api_map, unsupport_api_map
         )
         
-        # Create bridge transformers that work with libcst
-        transformers = [
-            LibcstTransformerBridge(ImportTransformer),
-            LibcstTransformerBridge(TensorRequiresGradTransformer),
-            LibcstTransformerBridge(BasicTransformer),
-            LibcstTransformerBridge(PreCustomOpTransformer),
-            LibcstTransformerBridge(CustomOpTransformer),
-        ]
-        
-        transformer_instances = []
-        for transformer_class in transformers:
-            transformer_instance = transformer_class(
-                tree,
-                file,
-                imports_map,
-                logger,
-                all_api_map,
-                unsupport_api_map,
-            )
-            transformer_instances.append(transformer_instance)
-        
-        return transformer_instances
+        return [bridge_transformer]
     
     def is_available(self) -> bool:
         """Check if libcst backend is available.
@@ -143,52 +122,14 @@ class LibcstBackend(BaseBackend):
         return "libcst"
 
 
-class LibcstTransformerBridge:
-    """Bridge class that adapts AST transformers to work with libcst trees."""
+class LibcstBridgeTransformer:
+    """Bridge transformer that applies all AST transformations to libcst tree."""
     
-    def __init__(self, ast_transformer_class):
-        """Initialize bridge with AST transformer class.
+    def __init__(self, backend, tree, file, imports_map, logger, all_api_map=None, unsupport_api_map=None):
+        """Initialize bridge transformer.
         
         Args:
-            ast_transformer_class: AST transformer class to bridge
-        """
-        self.ast_transformer_class = ast_transformer_class
-        self.torch_api_count = 0
-        self.success_api_count = 0
-    
-    def __call__(self, tree, file, imports_map, logger, all_api_map=None, unsupport_api_map=None):
-        """Create bridge instance.
-        
-        Args:
-            tree: libcst Module tree
-            file: File path
-            imports_map: Import mapping
-            logger: Logger instance
-            all_api_map: Optional API mapping
-            unsupport_api_map: Optional unsupported API mapping
-            
-        Returns:
-            Bridge transformer instance
-        """
-        return LibcstTransformerBridgeInstance(
-            self.ast_transformer_class,
-            tree,
-            file,
-            imports_map,
-            logger,
-            all_api_map,
-            unsupport_api_map
-        )
-
-
-class LibcstTransformerBridgeInstance:
-    """Instance of the bridge transformer."""
-    
-    def __init__(self, ast_transformer_class, tree, file, imports_map, logger, all_api_map=None, unsupport_api_map=None):
-        """Initialize bridge instance.
-        
-        Args:
-            ast_transformer_class: AST transformer class
+            backend: LibcstBackend instance
             tree: libcst Module tree
             file: File path
             imports_map: Import mapping
@@ -196,7 +137,7 @@ class LibcstTransformerBridgeInstance:
             all_api_map: Optional API mapping
             unsupport_api_map: Optional unsupported API mapping
         """
-        self.ast_transformer_class = ast_transformer_class
+        self.backend = backend
         self.libcst_tree = tree
         self.file = file
         self.imports_map = imports_map
@@ -207,34 +148,55 @@ class LibcstTransformerBridgeInstance:
         self.success_api_count = 0
     
     def transform(self):
-        """Apply transformation using AST bridge.
-        
-        This is a temporary implementation that converts libcst -> AST -> transform -> AST -> libcst
-        In the future, this should be replaced with native libcst transformers.
-        """
+        """Apply all AST transformations using bridge pattern."""
         try:
             # Store original code for comment preservation
             original_code = self.libcst_tree.code
             
             # Convert libcst to AST
             import ast
-            ast_code = self.libcst_tree.code
-            ast_tree = ast.parse(ast_code)
+            ast_tree = ast.parse(original_code)
             
-            # Apply AST transformer
-            ast_transformer = self.ast_transformer_class(
-                ast_tree,
-                self.file,
-                self.imports_map,
-                self.logger,
-                self.all_api_map,
-                self.unsupport_api_map
+            # Import transformer classes
+            from paconvert.transformer.import_transformer import ImportTransformer
+            from paconvert.transformer.tensor_requires_grad_transformer import (
+                TensorRequiresGradTransformer,
             )
-            ast_transformer.transform()
+            from paconvert.transformer.basic_transformer import BasicTransformer
+            from paconvert.transformer.custom_op_transformer import (
+                PreCustomOpTransformer,
+                CustomOpTransformer,
+            )
+            
+            # Apply all AST transformers in sequence
+            transformer_classes = [
+                ImportTransformer,
+                TensorRequiresGradTransformer,
+                BasicTransformer,
+                PreCustomOpTransformer,
+                CustomOpTransformer,
+            ]
+            
+            total_torch_api_count = 0
+            total_success_api_count = 0
+            
+            for transformer_class in transformer_classes:
+                transformer = transformer_class(
+                    ast_tree,
+                    self.file,
+                    self.imports_map,
+                    self.logger,
+                    self.all_api_map,
+                    self.unsupport_api_map,
+                )
+                transformer.transform()
+                
+                total_torch_api_count += transformer.torch_api_count
+                total_success_api_count += transformer.success_api_count
             
             # Update counts
-            self.torch_api_count = ast_transformer.torch_api_count
-            self.success_api_count = ast_transformer.success_api_count
+            self.torch_api_count = total_torch_api_count
+            self.success_api_count = total_success_api_count
             
             # Convert back to code using astor
             import astor
@@ -243,13 +205,13 @@ class LibcstTransformerBridgeInstance:
             # Try to preserve comments by merging them back
             preserved_code = self._preserve_comments(original_code, transformed_code)
             
-            # Parse the preserved code back to libcst
-            self.libcst_tree = cst.parse_module(preserved_code)
+            # Store the transformed code in the backend for later retrieval
+            self.backend._transformed_code = preserved_code
             
         except Exception as e:
             self.logger.warning(f"LibCST bridge transformation failed for {self.file}: {e}")
-            # Keep original tree on failure
-            pass
+            # Keep original code on failure
+            self.backend._transformed_code = self.libcst_tree.code
     
     def _preserve_comments(self, original_code: str, transformed_code: str) -> str:
         """Attempt to preserve comments and formatting from original code.
