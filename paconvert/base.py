@@ -19,8 +19,6 @@ import re
 import textwrap
 from itertools import groupby
 
-import astor
-
 from paconvert.utils import UtilsFileHelper, log_debug
 
 
@@ -42,6 +40,8 @@ class BaseTransformer(ast.NodeTransformer):
         self.black_list = []
         self.all_api_map = all_api_map
         self.unsupport_api_map = unsupport_api_map
+        # Default backend for backward compatibility
+        self._backend = None
 
     def transform(self):
         self.visit(self.root)
@@ -143,7 +143,7 @@ class BaseTransformer(ast.NodeTransformer):
         for node in node_list:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 import_nodes.append(node)
-            elif "sys.path" in astor.to_source(node):
+            elif "sys.path" in self.node_to_source(node):
                 import_nodes.append(node)
             else:
                 other_nodes.append(node)
@@ -193,7 +193,7 @@ class BaseTransformer(ast.NodeTransformer):
             node,
             (ast.Call, ast.Compare, ast.BinOp, ast.UnaryOp, ast.Subscript, ast.Assert),
         ):
-            node_str = astor.to_source(node).replace("\n", "")
+            node_str = self.node_to_source(node)
             for item in self.black_list:
                 # (array(1.) + array(2.)).abs() ...
                 if re.match(".*[^A-Za-z_]{1}%s\(" % item, node_str):
@@ -275,6 +275,22 @@ class BaseTransformer(ast.NodeTransformer):
         super(BaseTransformer, self).generic_visit(node)
         self.scope_stack.pop()
         return node
+    
+    def node_to_source(self, node):
+        """Convert AST node to source code. Uses backend if available, otherwise falls back to astor."""
+        if hasattr(self, '_backend') and self._backend:
+            return self._backend.node_to_source(node)
+        else:
+            # Fallback to astor for backward compatibility
+            try:
+                import astor
+                return astor.to_source(node).replace("\n", "")
+            except ImportError:
+                # If astor is not available, try ast.unparse (Python 3.9+)
+                if hasattr(ast, 'unparse'):
+                    return ast.unparse(node).replace("\n", "")
+                else:
+                    return str(node)
 
 
 class BaseMatcher(object):
@@ -333,7 +349,7 @@ class BaseMatcher(object):
             # not support some API args
             if k in unsupport_args:
                 return None
-            v = astor.to_source(node).replace("\n", "")
+            v = self.node_to_source(node)
             # v = ast.unparse(node)
             new_kwargs[k] = v
 
@@ -345,7 +361,7 @@ class BaseMatcher(object):
                     f"Parameter '{k}' specified multiple times - cannot be both positional and keyword argument",
                     self.transformer.file_name,
                 )
-            v = astor.to_source(node.value).replace("\n", "")
+            v = self.node_to_source(node.value)
             # v = ast.unparse(node.value)
             new_kwargs[k] = v
 
@@ -356,7 +372,7 @@ class BaseMatcher(object):
         for node in args:
             # if isinstance(node, ast.Starred) and not allow_starred:
             #    return None
-            ele = astor.to_source(node).replace("\n", "")
+            ele = self.node_to_source(node)
             new_args.append(ele)
 
         return new_args
@@ -373,13 +389,13 @@ class BaseMatcher(object):
             # not support some API args
             if k in unsupport_args:
                 return None
-            v = astor.to_source(node.value).replace("\n", "")
+            v = self.node_to_source(node.value)
             new_kwargs[k] = v
 
         return new_kwargs
 
     def parse_func(self, func):
-        new_func = astor.to_source(func).replace("\n", "")
+        new_func = self.node_to_source(func)
         self.paddleClass = new_func[0 : new_func.rfind(".")]
         if self.get_paddle_api():
             new_paddle_api = re.sub(
@@ -534,3 +550,19 @@ class BaseMatcher(object):
     def get_paddle_class_nodes(self, func, args, kwargs):
         self.parse_func(func)
         return self.get_paddle_nodes(args, kwargs)
+    
+    def node_to_source(self, node):
+        """Convert AST node to source code. Uses transformer's backend if available."""
+        if hasattr(self.transformer, '_backend') and self.transformer._backend:
+            return self.transformer._backend.node_to_source(node)
+        else:
+            # Fallback to astor for backward compatibility
+            try:
+                import astor
+                return astor.to_source(node).replace("\n", "")
+            except ImportError:
+                # If astor is not available, try ast.unparse (Python 3.9+)
+                if hasattr(ast, 'unparse'):
+                    return ast.unparse(node).replace("\n", "")
+                else:
+                    return str(node)

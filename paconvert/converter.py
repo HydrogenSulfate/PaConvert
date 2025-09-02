@@ -23,17 +23,8 @@ import re
 import shutil
 import black
 import isort
-import astor
 
-from paconvert.transformer.basic_transformer import BasicTransformer
-from paconvert.transformer.import_transformer import ImportTransformer
-from paconvert.transformer.tensor_requires_grad_transformer import (
-    TensorRequiresGradTransformer,
-)
-from paconvert.transformer.custom_op_transformer import (
-    PreCustomOpTransformer,
-    CustomOpTransformer,
-)
+from paconvert.backend import BackendManager
 from paconvert.utils import (
     UtilsFileHelper,
     get_unique_name,
@@ -58,6 +49,7 @@ class Converter:
         show_unsupport_api=False,
         no_format=False,
         calculate_speed=False,
+        backend="astor",
     ):
         self.imports_map = collections.defaultdict(dict)
         self.torch_api_count = 0
@@ -79,6 +71,10 @@ class Converter:
         self.no_format = no_format
         self.calculate_speed = calculate_speed
         self.line_count = 0
+        
+        # Initialize backend manager
+        self.backend_manager = BackendManager(backend, self.logger)
+        self.backend = self.backend_manager.get_backend()
 
         log_info(self.logger, "===========================================")
         log_info(self.logger, "PyTorch to Paddle Convert Start ------>:")
@@ -310,10 +306,10 @@ class Converter:
                 code = f.read()
                 if self.calculate_speed:
                     self.line_count += len(code.splitlines())
-                root = ast.parse(code)
+                root = self.backend.parse_code(code)
 
             self.transfer_node(root, old_path)
-            code = astor.to_source(root)
+            code = self.backend.generate_code(root)
 
             # format code
             if not self.no_format:
@@ -374,13 +370,7 @@ class Converter:
             shutil.copyfile(old_path, new_path)
 
     def transfer_node(self, root, file):
-        transformers = [
-            ImportTransformer,  # import ast transformer
-            TensorRequiresGradTransformer,  # attribute requires_grad transformer
-            BasicTransformer,  # most of api transformer
-            PreCustomOpTransformer,  # pre process for C++ custom op
-            CustomOpTransformer,  # C++ custom op transformer
-        ]
+        transformers = self.backend.create_transformers()
         for transformer in transformers:
             trans = transformer(
                 root,
@@ -390,6 +380,8 @@ class Converter:
                 self.all_api_map,
                 self.unsupport_api_map,
             )
+            # Inject backend into transformer
+            trans._backend = self.backend
             trans.transform()
             self.torch_api_count += trans.torch_api_count
             self.success_api_count += trans.success_api_count

@@ -17,7 +17,6 @@
 """
 
 import ast
-import astor
 import textwrap
 
 from paconvert.base import BaseMatcher
@@ -940,7 +939,7 @@ class MakeTMatcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 shape = self.parse_args(args)
             elif isinstance(args[0], ast.Starred):
-                shape = astor.to_source(args[0].value).replace("\n", "")
+                shape = self.node_to_source(args[0].value)
             else:
                 shape = self.parse_args(args)[0]
             kwargs = {"shape": str(shape).replace("'", ""), **kwargs}
@@ -998,7 +997,7 @@ class CreateMatcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 shape = self.parse_args(args)
             elif isinstance(args[0], ast.Starred):
-                shape = astor.to_source(args[0].value).replace("\n", "")
+                shape = self.node_to_source(args[0].value)
             else:
                 shape = self.parse_args(args)[0]
 
@@ -1517,7 +1516,7 @@ class TensorMatcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 shape = self.parse_args(args)
             elif len(args) == 1 and isinstance(args[0], ast.Starred):
-                shape = astor.to_source(args[0].value).replace("\n", "")
+                shape = self.node_to_source(args[0].value)
             else:
                 if len(args) == 0:
                     data = []
@@ -1796,7 +1795,7 @@ class TensorTileMatcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 perm = self.parse_args(args)
             elif isinstance(args[0], ast.Starred):
-                perm = astor.to_source(args[0].value).replace("\n", "")
+                perm = self.node_to_source(args[0].value)
             else:
                 perm = self.parse_args(args)[0]
 
@@ -1818,7 +1817,7 @@ class TensorNew_Matcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 shape = self.parse_args(args)
             elif isinstance(args[0], ast.Starred):
-                shape = astor.to_source(args[0].value).replace("\n", "")
+                shape = self.node_to_source(args[0].value)
             else:
                 shape = self.parse_args(args)[0]
 
@@ -2040,7 +2039,7 @@ class TensorExpandMatcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 shape = self.parse_args(args)
             elif isinstance(args[0], ast.Starred):
-                shape = astor.to_source(args[0].value).replace("\n", "")
+                shape = self.node_to_source(args[0].value)
             else:
                 shape = self.parse_args(args)[0]
 
@@ -2548,7 +2547,7 @@ class SizeMatcher(BaseMatcher):
         if len(args) == 0:
             code = "()"
         else:
-            code = "tuple({})".format(astor.to_source(args[0]).replace("\n", ""))
+            code = "tuple({})".format(self.node_to_source(args[0]))
 
         return ast.parse(code).body
 
@@ -4988,7 +4987,7 @@ class SimpleScalableVarMatcher(BaseMatcher):
             x = self.parse_args(args)
         else:
             if isinstance(args[0], ast.Starred):
-                x = astor.to_source(args[0].value).replace("\n", "")
+                x = self.node_to_source(args[0].value)
             else:
                 x = self.parse_args(args)
         kwargs = {dest_var_arg_name: str(x).replace("'", "")}
@@ -5021,7 +5020,7 @@ class ScalableVarMatcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 dest_var_arg_value = self.parse_args(args)
             elif len(args) == 1 and isinstance(args[0], ast.Starred):
-                dest_var_arg_value = astor.to_source(args[0].value).replace("\n", "")
+                dest_var_arg_value = self.node_to_source(args[0].value)
             else:
                 dest_var_arg_value = self.parse_args(args)[0]
 
@@ -5050,7 +5049,7 @@ class ScalableVarMatcher(BaseMatcher):
             if len(args) > 1 or (len(args) == 1 and isinstance(args[0], ast.Constant)):
                 dest_var_arg_value = self.parse_args(args)
             elif len(args) == 1 and isinstance(args[0], ast.Starred):
-                dest_var_arg_value = astor.to_source(args[0].value).replace("\n", "")
+                dest_var_arg_value = self.node_to_source(args[0].value)
             else:
                 dest_var_arg_value = self.parse_args(args)[0]
 
