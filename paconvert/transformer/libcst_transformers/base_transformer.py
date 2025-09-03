@@ -132,10 +132,18 @@ class LibcstBaseTransformer(cst.CSTTransformer):
         
         torch_packages = self.imports_map[self.file]["torch_packages"]
         
+        # Debug print
+        if self.logger:
+            log_debug(self.logger, f"Checking if {full_name} is torch API, packages: {torch_packages}")
+        
         for package in torch_packages:
             if full_name.startswith(f"{package}.") or full_name == package:
+                if self.logger:
+                    log_debug(self.logger, f"  ✓ {full_name} matches package {package}")
                 return True
         
+        if self.logger:
+            log_debug(self.logger, f"  ✗ {full_name} does not match any torch package")
         return False
     
     def add_module_insertion(self, node: cst.CSTNode):

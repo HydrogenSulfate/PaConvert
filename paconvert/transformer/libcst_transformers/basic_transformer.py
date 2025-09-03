@@ -29,6 +29,61 @@ from paconvert.utils import log_info, log_debug
 class LibcstBasicTransformer(LibcstBaseTransformer):
     """Basic transformer for converting torch API calls to paddle using libcst."""
     
+    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:
+        """Transform class definitions, particularly base classes."""
+        if updated_node.bases:
+            new_bases = []
+            changed = False
+            
+            for base in updated_node.bases:
+                if isinstance(base, cst.Arg) and base.value:
+                    # Handle base class references
+                    new_base_value = self._transform_base_class(base.value)
+                    if new_base_value != base.value:
+                        changed = True
+                    new_bases.append(base.with_changes(value=new_base_value))
+                else:
+                    new_bases.append(base)
+            
+            if changed:
+                return updated_node.with_changes(bases=new_bases)
+        
+        return updated_node
+    
+    def leave_Attribute(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> Union[cst.Attribute, cst.Name]:
+        """Transform attribute access that might be torch APIs."""
+        # This handles cases like accessing torch.nn.Module as a type annotation
+        # or other non-call contexts
+        full_name = self.get_full_attr_name(updated_node)
+        
+        if not self.is_torch_api(updated_node):
+            return updated_node
+        
+        # Map the local name back to the full torch API name
+        torch_api = self._resolve_torch_api_name(full_name)
+        
+        # Check if this API has a mapping
+        if torch_api not in API_MAPPING:
+            return updated_node
+        
+        # Get the mapping configuration
+        mapping_config = API_MAPPING[torch_api]
+        paddle_api = mapping_config.get("paddle_api")
+        
+        if not paddle_api:
+            return updated_node
+        
+        # Create new paddle reference
+        new_attr = self._create_paddle_func_ref(paddle_api)
+        
+        # Log the conversion
+        self.torch_api_count += 1
+        self.success_api_count += 1
+        if self.logger:
+            log_info(self.logger, f"[{self.file_name}] [Success] Convert attribute {torch_api} to {paddle_api}")
+        
+        return new_attr
+    
     def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
         """Transform function calls from torch to paddle."""
         # Get the full API name for debugging
@@ -147,22 +202,66 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         
         return new_args
     
+    def _transform_base_class(self, base_value: cst.BaseExpression) -> cst.BaseExpression:
+        """Transform base class references from torch to paddle."""
+        full_name = self.get_full_attr_name(base_value)
+        
+        if not self.is_torch_api(base_value):
+            return base_value
+        
+        # Map the local name back to the full torch API name
+        torch_api = self._resolve_torch_api_name(full_name)
+        
+        # Check if this API has a mapping
+        if torch_api not in API_MAPPING:
+            return base_value
+        
+        # Get the mapping configuration
+        mapping_config = API_MAPPING[torch_api]
+        paddle_api = mapping_config.get("paddle_api")
+        
+        if not paddle_api:
+            return base_value
+        
+        # Create new paddle reference
+        new_base = self._create_paddle_func_ref(paddle_api)
+        
+        # Log the conversion
+        self.torch_api_count += 1
+        self.success_api_count += 1
+        if self.logger:
+            log_info(self.logger, f"[{self.file_name}] [Success] Convert base class {torch_api} to {paddle_api}")
+        
+        return new_base
+    
     def _resolve_torch_api_name(self, local_name: str) -> str:
         """Resolve a local API name to the full torch API name."""
         if self.file not in self.imports_map:
             return local_name
         
+        # Debug print
+        if self.logger:
+            log_debug(self.logger, f"Resolving {local_name}, imports_map: {self.imports_map[self.file]}")
+        
         # Check if we have a direct mapping for this local name
         if local_name in self.imports_map[self.file]:
             full_torch_name = self.imports_map[self.file][local_name]
-            return local_name.replace(local_name.split('.')[0], full_torch_name, 1)
+            resolved = local_name.replace(local_name.split('.')[0], full_torch_name, 1)
+            if self.logger:
+                log_debug(self.logger, f"Direct mapping: {local_name} -> {resolved}")
+            return resolved
         
         # Check if the first part is a torch package
         first_part = local_name.split('.')[0]
         if first_part in self.imports_map[self.file]:
             full_torch_name = self.imports_map[self.file][first_part]
-            return local_name.replace(first_part, full_torch_name, 1)
+            resolved = local_name.replace(first_part, full_torch_name, 1)
+            if self.logger:
+                log_debug(self.logger, f"First part mapping: {local_name} -> {resolved}")
+            return resolved
         
+        if self.logger:
+            log_debug(self.logger, f"No mapping found for: {local_name}")
         return local_name
     
     def _create_value_node(self, value: Any) -> cst.BaseExpression:

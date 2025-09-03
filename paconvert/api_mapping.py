@@ -84,9 +84,11 @@ API_MAPPING = {
     # Functional operations
     "torch.nn.functional.relu": {
         "paddle_api": "paddle.nn.functional.relu",
+        "kwargs_change": {},
     },
     "torch.nn.functional.softmax": {
         "paddle_api": "paddle.nn.functional.softmax",
+        "kwargs_change": {},
     },
     
     # Tensor methods
