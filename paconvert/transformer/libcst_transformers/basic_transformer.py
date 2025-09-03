@@ -22,7 +22,7 @@ except ImportError:
     m = None
 
 from .base_transformer import LibcstBaseTransformer
-from paconvert.api_mapping import API_MAPPING
+from paconvert.global_var import GlobalManager
 from paconvert.utils import log_info, log_debug
 
 
@@ -63,11 +63,11 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         torch_api = self._resolve_torch_api_name(full_name)
         
         # Check if this API has a mapping
-        if torch_api not in API_MAPPING:
+        if torch_api not in GlobalManager.API_MAPPING:
             return updated_node
         
         # Get the mapping configuration
-        mapping_config = API_MAPPING[torch_api]
+        mapping_config = GlobalManager.API_MAPPING[torch_api]
         paddle_api = mapping_config.get("paddle_api")
         
         if not paddle_api:
@@ -96,7 +96,7 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         torch_api = self._resolve_torch_api_name(full_name)
         
         # Check if this API has a mapping
-        if torch_api not in API_MAPPING:
+        if torch_api not in GlobalManager.API_MAPPING:
             # Log unsupported API
             self.torch_api_count += 1
             if self.unsupport_api_map is not None:
@@ -106,7 +106,7 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
             return updated_node
         
         # Get the mapping configuration
-        mapping_config = API_MAPPING[torch_api]
+        mapping_config = GlobalManager.API_MAPPING[torch_api]
         paddle_api = mapping_config.get("paddle_api")
         
         if not paddle_api:
@@ -213,11 +213,11 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         torch_api = self._resolve_torch_api_name(full_name)
         
         # Check if this API has a mapping
-        if torch_api not in API_MAPPING:
+        if torch_api not in GlobalManager.API_MAPPING:
             return base_value
         
         # Get the mapping configuration
-        mapping_config = API_MAPPING[torch_api]
+        mapping_config = GlobalManager.API_MAPPING[torch_api]
         paddle_api = mapping_config.get("paddle_api")
         
         if not paddle_api:
