@@ -184,30 +184,37 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
     
     def _transform_arguments(self, args: list, mapping_config: Dict[str, Any]) -> list:
         """Transform function arguments based on mapping configuration."""
-        # For now, keep arguments as-is
-        # In a full implementation, this would handle:
-        # - Argument renaming (kwargs_change)
-        # - Default value insertion (paddle_default_kwargs)
-        # - Argument reordering
-        # - Type conversions
-        
         kwargs_change = mapping_config.get("kwargs_change", {})
+        kwargs_change_values = set(kwargs_change.values())
+        
+        # Parameters that should be removed (not passed to paddle API)
+        remove_params = {
+            "layout", "device", "memory_format", "inplace", "generator", 
+            "non_blocking", "async", "dtype", "pin_memory", "requires_grad"
+        }
         
         new_args = []
         for arg in args:
             if isinstance(arg, cst.Arg) and arg.keyword:
                 # Handle keyword arguments
                 keyword_name = arg.keyword.value
+                
+                # Skip parameters that should be removed
+                if keyword_name in remove_params:
+                    continue
+                
                 if keyword_name in kwargs_change:
                     # Rename the keyword
                     new_keyword = kwargs_change[keyword_name]
-                    if new_keyword:  # Skip if mapped to None (removal)
+                    if new_keyword:  # Skip if mapped to empty string (removal)
                         new_arg = arg.with_changes(keyword=cst.Name(new_keyword))
                         new_args.append(new_arg)
+                    # If mapped to empty string, skip (don't add to new_args)
                 else:
+                    # Keep other keyword arguments as-is
                     new_args.append(arg)
             else:
-                # Handle positional arguments
+                # Handle positional arguments - always keep them
                 new_args.append(arg)
         
         # Add default paddle arguments if specified
