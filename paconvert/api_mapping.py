@@ -62,16 +62,23 @@ API_MAPPING = {
     },
     "torch.nn.Linear": {
         "paddle_api": "paddle.nn.Linear",
-        "kwargs_change": {"in_features": "in_features", "out_features": "out_features"},
+        "kwargs_change": {},
     },
     "torch.nn.Conv2d": {
         "paddle_api": "paddle.nn.Conv2D",
+        "kwargs_change": {},
     },
     "torch.nn.ReLU": {
         "paddle_api": "paddle.nn.ReLU",
+        "kwargs_change": {},
     },
     "torch.nn.MaxPool2d": {
         "paddle_api": "paddle.nn.MaxPool2D",
+        "kwargs_change": {},
+    },
+    "torch.nn.Dropout": {
+        "paddle_api": "paddle.nn.Dropout",
+        "kwargs_change": {},
     },
     
     # Functional operations

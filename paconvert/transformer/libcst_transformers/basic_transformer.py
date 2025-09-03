@@ -37,8 +37,8 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         if not self.is_torch_api(updated_node.func):
             return updated_node
         
-        # Get the full API name
-        torch_api = full_name
+        # Map the local name back to the full torch API name
+        torch_api = self._resolve_torch_api_name(full_name)
         
         # Check if this API has a mapping
         if torch_api not in API_MAPPING:
@@ -146,6 +146,24 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
                 new_args.append(cst.Arg(keyword=cst.Name(key), value=default_value))
         
         return new_args
+    
+    def _resolve_torch_api_name(self, local_name: str) -> str:
+        """Resolve a local API name to the full torch API name."""
+        if self.file not in self.imports_map:
+            return local_name
+        
+        # Check if we have a direct mapping for this local name
+        if local_name in self.imports_map[self.file]:
+            full_torch_name = self.imports_map[self.file][local_name]
+            return local_name.replace(local_name.split('.')[0], full_torch_name, 1)
+        
+        # Check if the first part is a torch package
+        first_part = local_name.split('.')[0]
+        if first_part in self.imports_map[self.file]:
+            full_torch_name = self.imports_map[self.file][first_part]
+            return local_name.replace(first_part, full_torch_name, 1)
+        
+        return local_name
     
     def _create_value_node(self, value: Any) -> cst.BaseExpression:
         """Create a CST node for a given value."""

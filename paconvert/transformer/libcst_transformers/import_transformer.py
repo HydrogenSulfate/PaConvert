@@ -46,7 +46,7 @@ class LibcstImportTransformer(LibcstBaseTransformer):
             else:
                 full_name = name_item.name.value
             
-            if full_name in GlobalManager.TORCH_PACKAGE_MAPPING:
+            if full_name in GlobalManager.TORCH_PACKAGE_MAPPING or full_name.startswith('torch.'):
                 # This is a torch import, mark for removal
                 should_remove = True
                 self._record_torch_import(full_name, name_item.asname)
@@ -110,14 +110,16 @@ class LibcstImportTransformer(LibcstBaseTransformer):
         
         # Determine the local name (alias or original)
         if alias and alias.name:
+            # Use the alias name (e.g., 'nn' for 'import torch.nn as nn')
             local_name = alias.name.value
         else:
-            # For simple imports like 'import torch', use the first part
+            # For imports without alias
             if '.' not in full_name:
+                # Simple import like 'import torch'
                 local_name = full_name
             else:
-                # For dotted imports like 'torch.nn', use the first part
-                local_name = full_name.split('.')[0]
+                # Dotted import like 'import torch.nn' -> use 'torch.nn'
+                local_name = full_name
         
         # Map local name to full torch name
         self.imports_map[self.file][local_name] = full_name
