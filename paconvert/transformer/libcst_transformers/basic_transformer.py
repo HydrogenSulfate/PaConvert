@@ -31,11 +31,14 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
     
     def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
         """Transform function calls from torch to paddle."""
+        # Get the full API name for debugging
+        full_name = self.get_full_attr_name(updated_node.func)
+        
         if not self.is_torch_api(updated_node.func):
             return updated_node
         
         # Get the full API name
-        torch_api = self.get_full_attr_name(updated_node.func)
+        torch_api = full_name
         
         # Check if this API has a mapping
         if torch_api not in API_MAPPING:
@@ -43,7 +46,8 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
             self.torch_api_count += 1
             if self.unsupport_api_map is not None:
                 self.unsupport_api_map[torch_api] += 1
-            log_debug(self.logger, f"[{self.file_name}] [Not Support] {torch_api} is not supported")
+            if self.logger:
+                log_debug(self.logger, f"[{self.file_name}] [Not Support] {torch_api} is not supported")
             return updated_node
         
         # Get the mapping configuration
@@ -62,10 +66,12 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
             if new_call != updated_node:
                 self.torch_api_count += 1
                 self.success_api_count += 1
-                log_info(self.logger, f"[{self.file_name}] [Success] Convert {torch_api} to Paddle")
+                if self.logger:
+                    log_info(self.logger, f"[{self.file_name}] [Success] Convert {torch_api} to Paddle")
                 return new_call
         except Exception as e:
-            log_debug(self.logger, f"[{self.file_name}] [Error] Failed to convert {torch_api}: {e}")
+            if self.logger:
+                log_debug(self.logger, f"[{self.file_name}] [Error] Failed to convert {torch_api}: {e}")
         
         self.torch_api_count += 1
         if self.unsupport_api_map is not None:

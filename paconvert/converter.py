@@ -308,15 +308,11 @@ class Converter:
                     self.line_count += len(code.splitlines())
                 root = self.backend.parse_code(code)
 
-            # Store the original root for potential modification
-            original_root = root
-            self.transfer_node(root, old_path)
+            # Transform the code
+            transformed_root = self.transfer_node(root, old_path)
             
-            # For CST backend, root might have been modified in-place
-            if self.backend.get_backend_type() == "cst":
-                code = self.backend.generate_code(root)
-            else:
-                code = self.backend.generate_code(original_root)
+            # Generate code from transformed root
+            code = self.backend.generate_code(transformed_root)
 
             # format code
             if not self.no_format:
@@ -390,9 +386,13 @@ class Converter:
                     self.all_api_map,
                     self.unsupport_api_map,
                 )
+                # Transform and update root
                 root = transformer.transform()
                 self.torch_api_count += transformer.torch_api_count
                 self.success_api_count += transformer.success_api_count
+            
+            # Update the original root reference for code generation
+            return root
         else:
             # For AST backend, use existing AST transformers
             for transformer_class in transformers:
@@ -409,6 +409,8 @@ class Converter:
                 transformer.transform()
                 self.torch_api_count += transformer.torch_api_count
                 self.success_api_count += transformer.success_api_count
+            
+            return root
 
     def mark_unsupport(self, code, file):
         lines = code.split("\n")

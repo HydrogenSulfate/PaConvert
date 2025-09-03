@@ -50,7 +50,8 @@ class LibcstImportTransformer(LibcstBaseTransformer):
                 # This is a torch import, mark for removal
                 should_remove = True
                 self._record_torch_import(full_name, name_item.asname)
-                log_info(self.logger, f"[{self.file_name}] remove 'import {full_name}'")
+                if self.logger:
+                    log_info(self.logger, f"[{self.file_name}] remove 'import {full_name}'")
             else:
                 new_names.append(name_item)
         
@@ -76,7 +77,8 @@ class LibcstImportTransformer(LibcstBaseTransformer):
             # This is a torch import
             if isinstance(updated_node.names, cst.ImportStar):
                 # Handle 'from torch import *'
-                log_info(self.logger, f"[{self.file_name}] remove 'from {module_name} import *'")
+                if self.logger:
+                    log_info(self.logger, f"[{self.file_name}] remove 'from {module_name} import *'")
                 self._record_torch_import(module_name, None)
             else:
                 # Handle specific imports
@@ -84,7 +86,8 @@ class LibcstImportTransformer(LibcstBaseTransformer):
                     import_name = name_item.name.value
                     full_import = f"{module_name}.{import_name}"
                     self._record_torch_import(full_import, name_item.asname)
-                    log_info(self.logger, f"[{self.file_name}] remove 'from {module_name} import {import_name}'")
+                    if self.logger:
+                        log_info(self.logger, f"[{self.file_name}] remove 'from {module_name} import {import_name}'")
             
             self._ensure_paddle_import()
             return cst.RemovalSentinel.REMOVE
@@ -109,8 +112,12 @@ class LibcstImportTransformer(LibcstBaseTransformer):
         if alias and alias.name:
             local_name = alias.name.value
         else:
-            # Use the last part of the import for the local name
-            local_name = full_name.split('.')[-1]
+            # For simple imports like 'import torch', use the first part
+            if '.' not in full_name:
+                local_name = full_name
+            else:
+                # For dotted imports like 'torch.nn', use the first part
+                local_name = full_name.split('.')[0]
         
         # Map local name to full torch name
         self.imports_map[self.file][local_name] = full_name
@@ -128,4 +135,5 @@ class LibcstImportTransformer(LibcstBaseTransformer):
             )
             self.add_module_insertion(paddle_import)
             self.paddle_import_added = True
-            log_info(self.logger, f"[{self.file_name}] add 'import paddle' in line 1")
+            if self.logger:
+                log_info(self.logger, f"[{self.file_name}] add 'import paddle' in line 1")

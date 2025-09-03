@@ -21,23 +21,39 @@ API_MAPPING = {
     # Basic tensor operations
     "torch.tensor": {
         "paddle_api": "paddle.to_tensor",
-        "kwargs_change": {"data": "x"},
+        "kwargs_change": {},
     },
     "torch.zeros": {
         "paddle_api": "paddle.zeros",
-        "kwargs_change": {"size": "shape"},
+        "kwargs_change": {},
     },
     "torch.ones": {
         "paddle_api": "paddle.ones", 
-        "kwargs_change": {"size": "shape"},
+        "kwargs_change": {},
     },
     "torch.randn": {
         "paddle_api": "paddle.randn",
-        "kwargs_change": {"size": "shape"},
+        "kwargs_change": {},
     },
     "torch.rand": {
         "paddle_api": "paddle.rand",
-        "kwargs_change": {"size": "shape"},
+        "kwargs_change": {},
+    },
+    "torch.randint": {
+        "paddle_api": "paddle.randint",
+        "kwargs_change": {},
+    },
+    "torch.add": {
+        "paddle_api": "paddle.add",
+        "kwargs_change": {},
+    },
+    "torch.matmul": {
+        "paddle_api": "paddle.matmul",
+        "kwargs_change": {},
+    },
+    "torch.cat": {
+        "paddle_api": "paddle.concat",
+        "kwargs_change": {"dim": "axis"},
     },
     
     # Neural network modules

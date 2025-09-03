@@ -125,10 +125,15 @@ class LibcstBaseTransformer(cst.CSTTransformer):
     def is_torch_api(self, node: cst.BaseExpression) -> bool:
         """Check if a node represents a torch API call."""
         full_name = self.get_full_attr_name(node)
+        
+        # Check if this file has torch packages recorded
+        if self.file not in self.imports_map or "torch_packages" not in self.imports_map[self.file]:
+            return False
+        
         torch_packages = self.imports_map[self.file]["torch_packages"]
         
         for package in torch_packages:
-            if full_name.startswith(f"{package}."):
+            if full_name.startswith(f"{package}.") or full_name == package:
                 return True
         
         return False
