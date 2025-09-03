@@ -137,28 +137,45 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         """Transform a specific API call based on mapping configuration."""
         paddle_api = mapping_config["paddle_api"]
         
-        # Check if this call has an 'out' parameter that needs special handling
+        # Step 1: Extract 'out' parameter if present
         out_arg = None
-        other_args = []
+        filtered_args = []
         
         for arg in call_node.args:
             if isinstance(arg, cst.Arg) and arg.keyword and arg.keyword.value == "out":
                 out_arg = arg
+                # Don't add 'out' to filtered_args
             else:
-                other_args.append(arg)
+                filtered_args.append(arg)
         
-        # Create new function reference
+        # Step 2: Transform remaining arguments
+        transformed_args = []
+        kwargs_change = mapping_config.get("kwargs_change", {})
+        
+        for arg in filtered_args:
+            if isinstance(arg, cst.Arg) and arg.keyword:
+                keyword_name = arg.keyword.value
+                if keyword_name in kwargs_change:
+                    new_keyword = kwargs_change[keyword_name]
+                    if new_keyword:  # Only rename if not empty
+                        new_arg = arg.with_changes(keyword=cst.Name(new_keyword))
+                        transformed_args.append(new_arg)
+                    # If empty, skip this argument
+                else:
+                    # Keep other keyword arguments as-is
+                    transformed_args.append(arg)
+            else:
+                # Keep positional arguments as-is
+                transformed_args.append(arg)
+        
+        # Step 3: Create new function reference
         new_func = self._create_paddle_func_ref(paddle_api)
         
-        # Transform arguments (excluding 'out' if present)
-        new_args = self._transform_arguments(other_args, mapping_config)
+        # Step 4: Create the basic paddle call
+        new_call = call_node.with_changes(func=new_func, args=transformed_args)
         
-        # Create the basic paddle call
-        new_call = call_node.with_changes(func=new_func, args=new_args)
-        
-        # If there's an 'out' parameter, wrap with paddle.assign
+        # Step 5: If there's an 'out' parameter, wrap with paddle.assign
         if out_arg:
-            # Create paddle.assign call
             assign_func = cst.Attribute(value=cst.Name("paddle"), attr=cst.Name("assign"))
             assign_args = [
                 cst.Arg(value=new_call),  # The result of the paddle function
@@ -185,7 +202,9 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
     def _transform_arguments(self, args: list, mapping_config: Dict[str, Any]) -> list:
         """Transform function arguments based on mapping configuration."""
         kwargs_change = mapping_config.get("kwargs_change", {})
-        kwargs_change_values = set(kwargs_change.values())
+        
+        if self.logger:
+            log_debug(self.logger, f"kwargs_change: {kwargs_change}")
         
         # Parameters that should be removed (not passed to paddle API)
         remove_params = {
@@ -199,22 +218,36 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
                 # Handle keyword arguments
                 keyword_name = arg.keyword.value
                 
+                if self.logger:
+                    log_debug(self.logger, f"Processing keyword arg: {keyword_name}")
+                
                 # Skip parameters that should be removed
                 if keyword_name in remove_params:
+                    if self.logger:
+                        log_debug(self.logger, f"Removing parameter: {keyword_name}")
                     continue
                 
                 if keyword_name in kwargs_change:
                     # Rename the keyword
                     new_keyword = kwargs_change[keyword_name]
+                    if self.logger:
+                        log_debug(self.logger, f"Renaming {keyword_name} to {new_keyword}")
                     if new_keyword:  # Skip if mapped to empty string (removal)
                         new_arg = arg.with_changes(keyword=cst.Name(new_keyword))
                         new_args.append(new_arg)
+                    else:
+                        if self.logger:
+                            log_debug(self.logger, f"Removing parameter {keyword_name} (mapped to empty)")
                     # If mapped to empty string, skip (don't add to new_args)
                 else:
                     # Keep other keyword arguments as-is
+                    if self.logger:
+                        log_debug(self.logger, f"Keeping parameter as-is: {keyword_name}")
                     new_args.append(arg)
             else:
                 # Handle positional arguments - always keep them
+                if self.logger:
+                    log_debug(self.logger, f"Keeping positional arg: {arg}")
                 new_args.append(arg)
         
         # Add default paddle arguments if specified
