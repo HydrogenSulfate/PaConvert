@@ -137,22 +137,33 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         """Transform a specific API call based on mapping configuration."""
         paddle_api = mapping_config["paddle_api"]
         
-        # Step 1: Extract 'out' parameter if present
+        # Step 1: Extract special parameters
         out_arg = None
-        filtered_args = []
+        input_arg = None
+        other_args = []
         
         for arg in call_node.args:
-            if isinstance(arg, cst.Arg) and arg.keyword and arg.keyword.value == "out":
-                out_arg = arg
-                # Don't add 'out' to filtered_args
+            if isinstance(arg, cst.Arg) and arg.keyword:
+                if arg.keyword.value == "out":
+                    out_arg = arg
+                elif arg.keyword.value == "input":
+                    input_arg = arg
+                else:
+                    other_args.append(arg)
             else:
-                filtered_args.append(arg)
+                # Positional arguments
+                other_args.append(arg)
         
-        # Step 2: Transform remaining arguments
+        # Step 2: Build transformed arguments list
         transformed_args = []
-        kwargs_change = mapping_config.get("kwargs_change", {})
         
-        for arg in filtered_args:
+        # If there's an 'input' keyword argument, convert it to the first positional argument
+        if input_arg:
+            transformed_args.append(cst.Arg(value=input_arg.value))
+        
+        # Process other arguments
+        kwargs_change = mapping_config.get("kwargs_change", {})
+        for arg in other_args:
             if isinstance(arg, cst.Arg) and arg.keyword:
                 keyword_name = arg.keyword.value
                 if keyword_name in kwargs_change:
