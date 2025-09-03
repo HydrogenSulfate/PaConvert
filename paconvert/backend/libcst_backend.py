@@ -12,89 +12,81 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ast
-from typing import Any, List, Type
+from typing import Any, List, Type, Union, Optional
 
 try:
     import libcst as cst
     from libcst.metadata import MetadataWrapper
+    from libcst import matchers as m
 except ImportError:
     cst = None
     MetadataWrapper = None
+    m = None
 
 from .base_backend import BaseBackend
 
 
 class LibcstBackend(BaseBackend):
-    """Backend implementation using libcst for CST to source conversion."""
+    """Backend implementation using native libcst for CST manipulation."""
     
     def __init__(self):
         if cst is None:
             raise ImportError("libcst is required for LibcstBackend. Install with: pip install libcst")
     
-    def parse_code(self, code: str) -> Any:
+    def parse_code(self, code: str) -> cst.Module:
         """Parse source code into a CST using libcst.parse_module."""
-        # For compatibility with existing transformers, we still need to return an AST
-        # The CST will be used internally for code generation
-        self._cst_tree = cst.parse_module(code)
-        self._original_code = code
-        return ast.parse(code)
+        return cst.parse_module(code)
     
-    def generate_code(self, tree: ast.AST) -> str:
-        """Generate source code from AST by converting back to CST and using libcst."""
-        # For now, we'll use a hybrid approach:
-        # 1. Convert the modified AST back to source using ast.unparse (Python 3.9+) or a fallback
-        # 2. Parse with libcst to preserve formatting where possible
-        try:
-            # Try using ast.unparse if available (Python 3.9+)
-            if hasattr(ast, 'unparse'):
-                intermediate_code = ast.unparse(tree)
-            else:
-                # Fallback to astor for older Python versions
-                import astor
-                intermediate_code = astor.to_source(tree)
-            
-            # Parse with libcst to get better formatting
-            cst_tree = cst.parse_module(intermediate_code)
-            return cst_tree.code
-        except Exception:
-            # If libcst parsing fails, fall back to basic conversion
-            if hasattr(ast, 'unparse'):
-                return ast.unparse(tree)
-            else:
-                import astor
-                return astor.to_source(tree)
+    def generate_code(self, tree: cst.Module) -> str:
+        """Generate source code from CST using libcst."""
+        return tree.code
     
     def create_transformers(self) -> List[Type]:
         """Return transformer classes adapted for libcst backend."""
-        # For now, we'll use the same transformers as astor backend
-        # In the future, these could be replaced with native libcst transformers
-        from paconvert.transformer.basic_transformer import BasicTransformer
-        from paconvert.transformer.import_transformer import ImportTransformer
-        from paconvert.transformer.tensor_requires_grad_transformer import (
-            TensorRequiresGradTransformer,
-        )
-        from paconvert.transformer.custom_op_transformer import (
-            PreCustomOpTransformer,
-            CustomOpTransformer,
+        from paconvert.transformer.libcst_transformers.import_transformer import LibcstImportTransformer
+        from paconvert.transformer.libcst_transformers.basic_transformer import LibcstBasicTransformer
+        from paconvert.transformer.libcst_transformers.tensor_requires_grad_transformer import LibcstTensorRequiresGradTransformer
+        from paconvert.transformer.libcst_transformers.custom_op_transformer import (
+            LibcstPreCustomOpTransformer,
+            LibcstCustomOpTransformer,
         )
         
         return [
-            ImportTransformer,
-            TensorRequiresGradTransformer,
-            BasicTransformer,
-            PreCustomOpTransformer,
-            CustomOpTransformer,
+            LibcstImportTransformer,
+            LibcstTensorRequiresGradTransformer,
+            LibcstBasicTransformer,
+            LibcstPreCustomOpTransformer,
+            LibcstCustomOpTransformer,
         ]
     
-    def node_to_source(self, node: ast.AST) -> str:
-        """Convert a single AST node to source code."""
-        try:
-            if hasattr(ast, 'unparse'):
-                return ast.unparse(node).replace("\n", "")
-            else:
-                import astor
-                return astor.to_source(node).replace("\n", "")
-        except Exception:
-            # Fallback for complex nodes
-            return str(node)
+    def node_to_source(self, node: cst.CSTNode) -> str:
+        """Convert a single CST node to source code."""
+        if isinstance(node, cst.Module):
+            return node.code
+        else:
+            # For non-module nodes, we need to create a temporary module
+            # to get the source code
+            try:
+                if isinstance(node, cst.BaseExpression):
+                    temp_module = cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=node)])])
+                elif isinstance(node, cst.BaseStatement):
+                    if isinstance(node, cst.SimpleStatementLine):
+                        temp_module = cst.Module(body=[node])
+                    else:
+                        temp_module = cst.Module(body=[node])
+                else:
+                    # For other node types, try to wrap in an expression
+                    temp_module = cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=node)])])
+                
+                code = temp_module.code.strip()
+                # Remove trailing newline if present
+                if code.endswith('\n'):
+                    code = code[:-1]
+                return code
+            except Exception:
+                # Fallback: return string representation
+                return str(node)
+    
+    def get_backend_type(self) -> str:
+        """Return the backend type identifier."""
+        return "cst"

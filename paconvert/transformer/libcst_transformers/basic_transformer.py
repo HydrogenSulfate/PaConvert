@@ -1,0 +1,156 @@
+# Copyright (c) 2022  PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from typing import Union, Optional, Dict, Any
+
+try:
+    import libcst as cst
+    from libcst import matchers as m
+except ImportError:
+    cst = None
+    m = None
+
+from .base_transformer import LibcstBaseTransformer
+from paconvert.api_mapping import API_MAPPING
+from paconvert.utils import log_info, log_debug
+
+
+class LibcstBasicTransformer(LibcstBaseTransformer):
+    """Basic transformer for converting torch API calls to paddle using libcst."""
+    
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
+        """Transform function calls from torch to paddle."""
+        if not self.is_torch_api(updated_node.func):
+            return updated_node
+        
+        # Get the full API name
+        torch_api = self.get_full_attr_name(updated_node.func)
+        
+        # Check if this API has a mapping
+        if torch_api not in API_MAPPING:
+            # Log unsupported API
+            self.torch_api_count += 1
+            if self.unsupport_api_map is not None:
+                self.unsupport_api_map[torch_api] += 1
+            log_debug(self.logger, f"[{self.file_name}] [Not Support] {torch_api} is not supported")
+            return updated_node
+        
+        # Get the mapping configuration
+        mapping_config = API_MAPPING[torch_api]
+        paddle_api = mapping_config.get("paddle_api")
+        
+        if not paddle_api:
+            self.torch_api_count += 1
+            if self.unsupport_api_map is not None:
+                self.unsupport_api_map[torch_api] += 1
+            return updated_node
+        
+        # Transform the API call
+        try:
+            new_call = self._transform_api_call(updated_node, torch_api, mapping_config)
+            if new_call != updated_node:
+                self.torch_api_count += 1
+                self.success_api_count += 1
+                log_info(self.logger, f"[{self.file_name}] [Success] Convert {torch_api} to Paddle")
+                return new_call
+        except Exception as e:
+            log_debug(self.logger, f"[{self.file_name}] [Error] Failed to convert {torch_api}: {e}")
+        
+        self.torch_api_count += 1
+        if self.unsupport_api_map is not None:
+            self.unsupport_api_map[torch_api] += 1
+        return updated_node
+    
+    def _transform_api_call(self, call_node: cst.Call, torch_api: str, mapping_config: Dict[str, Any]) -> cst.Call:
+        """Transform a specific API call based on mapping configuration."""
+        paddle_api = mapping_config["paddle_api"]
+        
+        # Create new function reference
+        new_func = self._create_paddle_func_ref(paddle_api)
+        
+        # Transform arguments
+        new_args = self._transform_arguments(call_node.args, mapping_config)
+        
+        return call_node.with_changes(func=new_func, args=new_args)
+    
+    def _create_paddle_func_ref(self, paddle_api: str) -> cst.BaseExpression:
+        """Create a paddle function reference from API string."""
+        parts = paddle_api.split('.')
+        
+        if len(parts) == 1:
+            return cst.Name(parts[0])
+        
+        # Build nested attribute access
+        result = cst.Name(parts[0])
+        for part in parts[1:]:
+            result = cst.Attribute(value=result, attr=cst.Name(part))
+        
+        return result
+    
+    def _transform_arguments(self, args: list, mapping_config: Dict[str, Any]) -> list:
+        """Transform function arguments based on mapping configuration."""
+        # For now, keep arguments as-is
+        # In a full implementation, this would handle:
+        # - Argument renaming (kwargs_change)
+        # - Default value insertion (paddle_default_kwargs)
+        # - Argument reordering
+        # - Type conversions
+        
+        kwargs_change = mapping_config.get("kwargs_change", {})
+        
+        new_args = []
+        for arg in args:
+            if isinstance(arg, cst.Arg) and arg.keyword:
+                # Handle keyword arguments
+                keyword_name = arg.keyword.value
+                if keyword_name in kwargs_change:
+                    # Rename the keyword
+                    new_keyword = kwargs_change[keyword_name]
+                    if new_keyword:  # Skip if mapped to None (removal)
+                        new_arg = arg.with_changes(keyword=cst.Name(new_keyword))
+                        new_args.append(new_arg)
+                else:
+                    new_args.append(arg)
+            else:
+                # Handle positional arguments
+                new_args.append(arg)
+        
+        # Add default paddle arguments if specified
+        paddle_defaults = mapping_config.get("paddle_default_kwargs", {})
+        for key, value in paddle_defaults.items():
+            # Check if this argument is already provided
+            has_arg = any(
+                isinstance(arg, cst.Arg) and arg.keyword and arg.keyword.value == key
+                for arg in new_args
+            )
+            if not has_arg:
+                # Add default argument
+                default_value = self._create_value_node(value)
+                new_args.append(cst.Arg(keyword=cst.Name(key), value=default_value))
+        
+        return new_args
+    
+    def _create_value_node(self, value: Any) -> cst.BaseExpression:
+        """Create a CST node for a given value."""
+        if isinstance(value, str):
+            return cst.SimpleString(f'"{value}"')
+        elif isinstance(value, (int, float)):
+            return cst.Integer(str(value)) if isinstance(value, int) else cst.Float(str(value))
+        elif isinstance(value, bool):
+            return cst.Name("True" if value else "False")
+        elif value is None:
+            return cst.Name("None")
+        else:
+            # Fallback: convert to string
+            return cst.SimpleString(f'"{str(value)}"')

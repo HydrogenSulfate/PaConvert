@@ -21,12 +21,12 @@ class BaseBackend(ABC):
     
     @abstractmethod
     def parse_code(self, code: str) -> Any:
-        """Parse source code into an AST representation."""
+        """Parse source code into a tree representation."""
         pass
     
     @abstractmethod
     def generate_code(self, tree: Any) -> str:
-        """Generate source code from an AST representation."""
+        """Generate source code from a tree representation."""
         pass
     
     @abstractmethod
@@ -36,5 +36,10 @@ class BaseBackend(ABC):
     
     @abstractmethod
     def node_to_source(self, node: Any) -> str:
-        """Convert a single AST node to source code."""
+        """Convert a single node to source code."""
+        pass
+    
+    @abstractmethod
+    def get_backend_type(self) -> str:
+        """Return the backend type identifier."""
         pass

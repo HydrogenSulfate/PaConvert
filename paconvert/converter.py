@@ -308,8 +308,15 @@ class Converter:
                     self.line_count += len(code.splitlines())
                 root = self.backend.parse_code(code)
 
+            # Store the original root for potential modification
+            original_root = root
             self.transfer_node(root, old_path)
-            code = self.backend.generate_code(root)
+            
+            # For CST backend, root might have been modified in-place
+            if self.backend.get_backend_type() == "cst":
+                code = self.backend.generate_code(root)
+            else:
+                code = self.backend.generate_code(original_root)
 
             # format code
             if not self.no_format:
@@ -371,20 +378,37 @@ class Converter:
 
     def transfer_node(self, root, file):
         transformers = self.backend.create_transformers()
-        for transformer in transformers:
-            trans = transformer(
-                root,
-                file,
-                self.imports_map,
-                self.logger,
-                self.all_api_map,
-                self.unsupport_api_map,
-            )
-            # Inject backend into transformer
-            trans._backend = self.backend
-            trans.transform()
-            self.torch_api_count += trans.torch_api_count
-            self.success_api_count += trans.success_api_count
+        
+        if self.backend.get_backend_type() == "cst":
+            # For libcst backend, use CST transformers
+            for transformer_class in transformers:
+                transformer = transformer_class(
+                    root,
+                    file,
+                    self.imports_map,
+                    self.logger,
+                    self.all_api_map,
+                    self.unsupport_api_map,
+                )
+                root = transformer.transform()
+                self.torch_api_count += transformer.torch_api_count
+                self.success_api_count += transformer.success_api_count
+        else:
+            # For AST backend, use existing AST transformers
+            for transformer_class in transformers:
+                transformer = transformer_class(
+                    root,
+                    file,
+                    self.imports_map,
+                    self.logger,
+                    self.all_api_map,
+                    self.unsupport_api_map,
+                )
+                # Inject backend into transformer
+                transformer._backend = self.backend
+                transformer.transform()
+                self.torch_api_count += transformer.torch_api_count
+                self.success_api_count += transformer.success_api_count
 
     def mark_unsupport(self, code, file):
         lines = code.split("\n")
