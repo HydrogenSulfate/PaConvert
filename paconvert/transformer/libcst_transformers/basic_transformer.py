@@ -84,7 +84,7 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         
         return new_attr
     
-    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
+    def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> Union[cst.Call, cst.BaseExpression]:
         """Transform function calls from torch to paddle."""
         # Get the full API name for debugging
         full_name = self.get_full_attr_name(updated_node.func)
@@ -137,13 +137,36 @@ class LibcstBasicTransformer(LibcstBaseTransformer):
         """Transform a specific API call based on mapping configuration."""
         paddle_api = mapping_config["paddle_api"]
         
+        # Check if this call has an 'out' parameter that needs special handling
+        out_arg = None
+        other_args = []
+        
+        for arg in call_node.args:
+            if isinstance(arg, cst.Arg) and arg.keyword and arg.keyword.value == "out":
+                out_arg = arg
+            else:
+                other_args.append(arg)
+        
         # Create new function reference
         new_func = self._create_paddle_func_ref(paddle_api)
         
-        # Transform arguments
-        new_args = self._transform_arguments(call_node.args, mapping_config)
+        # Transform arguments (excluding 'out' if present)
+        new_args = self._transform_arguments(other_args, mapping_config)
         
-        return call_node.with_changes(func=new_func, args=new_args)
+        # Create the basic paddle call
+        new_call = call_node.with_changes(func=new_func, args=new_args)
+        
+        # If there's an 'out' parameter, wrap with paddle.assign
+        if out_arg:
+            # Create paddle.assign call
+            assign_func = cst.Attribute(value=cst.Name("paddle"), attr=cst.Name("assign"))
+            assign_args = [
+                cst.Arg(value=new_call),  # The result of the paddle function
+                cst.Arg(keyword=cst.Name("output"), value=out_arg.value)  # The output tensor
+            ]
+            return cst.Call(func=assign_func, args=assign_args)
+        
+        return new_call
     
     def _create_paddle_func_ref(self, paddle_api: str) -> cst.BaseExpression:
         """Create a paddle function reference from API string."""
